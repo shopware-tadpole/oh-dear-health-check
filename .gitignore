@@ -1,0 +1,4 @@
+/vendor/
+/.phpunit.cache/
+/test-results/
+/.ddev/

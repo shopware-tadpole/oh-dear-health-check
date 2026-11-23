@@ -1,27 +1,39 @@
 {
-    "name": "tadpole/oh-dear",
-    "description": "Tadpole/oh-dear",
-    "type": "shopware-platform-plugin",
-    "version": "1.0.0",
-    "license": "MIT",
-    "require": {
-        "shopware/core": "~6.6.0"
-    },
-    "extra": {
-        "shopware-plugin-class": "Tadpole\\OhDear\\TadpoleOhDear",
-        "label": {
-            "de-DE": "OhDear Health Check",
-            "en-GB": "OhDear Health Check"
-        }
-    },
-    "autoload": {
-        "psr-4": {
-            "Tadpole\\OhDear\\": "src/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "Tadpole\\Tests\\": "tests/"
-        }
+  "name": "tadpole/oh-dear",
+  "description": "Tadpole/oh-dear",
+  "type": "shopware-platform-plugin",
+  "version": "1.0.0",
+  "license": "MIT",
+  "require": {
+    "php": "^8.2",
+    "shopware/core": "~6.6.0"
+  },
+  "extra": {
+    "shopware-plugin-class": "Tadpole\\OhDear\\TadpoleOhDear",
+    "label": {
+      "de-DE": "OhDear Health Check",
+      "en-GB": "OhDear Health Check"
     }
+  },
+  "autoload": {
+    "psr-4": {
+      "Tadpole\\OhDear\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tadpole\\OhDear\\Tests\\": "tests/"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "symfony/runtime": false
+    }
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.1"
+  },
+  "scripts": {
+    "test": "phpunit"
+  }
 }
