@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-files:
+    name: Validate YAML, XML and JSON
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet pyyaml
+      - name: Parse every tracked YAML, XML and JSON file
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys, xml.etree.ElementTree as ET
+          import yaml
+
+          EXT = ('.yml', '.yaml', '.xml', '.json')
+          out = subprocess.run(['git', 'ls-files', '-z'], capture_output=True, check=True).stdout.decode()
+          # *.dist files (phpunit.xml.dist, phpcs.xml.dist, ...) count as what they end in before .dist
+          kind = lambda f: f[:-len('.dist')] if f.endswith('.dist') else f
+          files = sorted(f for f in out.split('\0') if kind(f).endswith(EXT))
+
+          errors = 0
+          for f in files:
+              try:
+                  with open(f, encoding='utf-8') as fh:
+                      if kind(f).endswith('.json'):
+                          json.load(fh)
+                      elif kind(f).endswith('.xml'):
+                          ET.parse(fh)
+                      else:
+                          list(yaml.safe_load_all(fh))
+              except Exception as e:
+                  errors += 1
+                  print(f'INVALID {f}: {e}')
+          print(f'{len(files)} files checked, {errors} invalid')
+          sys.exit(1 if errors else 0)
+          PY
+
+  # PSR-12 via phpcs.xml.dist. Applies what phpcbf can fix and pushes it as its own commit - only
+  # when something actually changed. That push starts a fresh run on the formatted code, which
+  # reports whatever phpcbf could not fix; the outdated run stops here. Pushes made with the
+  # default GITHUB_TOKEN never start new runs, hence the FORMAT_TOKEN secret (a token with
+  # contents: write on this repo); without it the job fails and prints the diff instead.
+  phpcs:
+    name: PHPCS PSR-12 (auto-format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The branch tip itself, not the pull request merge commit.
+          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.FORMAT_TOKEN || github.token }}
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          tools: phpcs:3.13, phpcbf:3.13
+          coverage: none
+      - name: Auto-format
+        env:
+          HAS_FORMAT_TOKEN: ${{ secrets.FORMAT_TOKEN != '' }}
+        run: |
+          # phpcbf exits 1 when it fixed something and 2 when something is left it cannot fix.
+          phpcbf || true
+          if git diff --quiet; then
+            echo "Nothing to auto-format."
+            exit 0
+          fi
+          if [ "${HAS_FORMAT_TOKEN}" != "true" ]; then
+            git --no-pager diff
+            echo "Not PSR-12 formatted: run phpcbf locally, or add the FORMAT_TOKEN secret so CI can push the fix."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qam "Apply PSR-12 formatting"
+          git push
+          echo "Pushed formatting commit $(git rev-parse --short HEAD) - its own run checks the formatted code; stopping this outdated run."
+          exit 1
+      - run: phpcs
+
+  phpstan:
+    name: PHPStan (shopware-cli)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - uses: shopware/shopware-cli-action@v1
+      - run: shopware-cli extension validate . --full --only phpstan
+
+  phpunit:
+    name: PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - run: composer install --no-interaction --no-progress
+      - run: composer test
+
+  build-zip:
+    name: Build ZIP
+    needs: [validate-files, phpcs, phpstan, phpunit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - uses: shopware/shopware-cli-action@v1
+      - run: shopware-cli extension validate .
+      - run: rm -rf tests phpunit.xml.dist phpcs.xml.dist .phpunit.cache test-results .github .ddev
+      - run: shopware-cli extension zip . --release --disable-git
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-zip
+          path: '*.zip'
