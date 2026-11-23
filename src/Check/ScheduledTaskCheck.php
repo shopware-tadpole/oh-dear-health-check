@@ -1,56 +1,79 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Tadpole\OhDear\Check;
 
-use Doctrine\DBAL\ArrayParameterType;
-use Tadpole\OhDear\Struct\HealthCheckStruct;
-use Doctrine\DBAL\Connection;
+use DateTimeImmutable;
+use Shopware\Core\Framework\Context;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTask;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskCollection;
+use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskEntity;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
+use Tadpole\OhDear\Enum\HealthStatus;
+use Tadpole\OhDear\Struct\HealthCheckStruct;
 
-class ScheduledTaskCheck extends AbstractCheck {
+use function sprintf;
+
+readonly class ScheduledTaskCheck implements HealthCheck
+{
+    private const MAX_RUNTIME_BEFORE_WARNING_IN_MINUTES = 10;
+    private HealthCheckStruct $statusData;
 
     public function __construct(
-        private readonly Connection $connection,
-        private readonly ParameterBagInterface $parameterBag
-    ) {}
+        private EntityRepository $scheduledTaskRepository,
+        private ParameterBagInterface $parameterBag
+    ) {
+        $this->statusData = new HealthCheckStruct();
+    }
 
     public function getHealthCheckStruct(): HealthCheckStruct
     {
-        $queueSizeCheckStruct = new HealthCheckStruct();
-        $queueSizeCheckStruct->setName('ScheduledTasksOverdue');
-        $queueSizeCheckStruct->setLabel('Scheduled tasks overdue');
-        return $this->setScheduledTaskCheckData($queueSizeCheckStruct);
+        $this->statusData->setName('ScheduledTasksOverdue');
+        $this->statusData->setLabel('Scheduled tasks overdue');
+
+        $this->collectData();
+
+        return $this->statusData;
     }
 
-    private function setQueueSizeCheckStruct($queueSizeCheckStruct,$overdue, $maxOverdue): HealthCheckStruct
+    private function collectData(): void
     {
-        if ($overdue <= $maxOverdue) {
-            $queueSizeCheckStruct->setStatus('ok');
-        } else {
-            $queueSizeCheckStruct->setStatus('warning');
+        $criteria = new Criteria();
+        $criteria->addFilter(new EqualsAnyFilter('status', ['inactive', 'skipped']));
+        $scheduledTasks = $this->scheduledTaskRepository->search(
+            $criteria,
+            Context::createDefaultContext()
+        )->getEntities();
+
+        $mustRunBefore = (new DateTimeImmutable())->modify(
+            sprintf('-%d minutes', self::MAX_RUNTIME_BEFORE_WARNING_IN_MINUTES)
+        );
+        $this->filterOldScheduledTaskImplementations($scheduledTasks);
+        $this->filterTasksWhichRanOnTime($scheduledTasks, $mustRunBefore);
+
+        if ($scheduledTasks->count() === 0) {
+            $this->createAllFineResponse();
+            return;
         }
 
-        $queueSizeCheckStruct->setNotificationMessage("Scheduled tasks overdue is $overdue min");
-        $queueSizeCheckStruct->setShortSummary("$overdue mins");
-        $queueSizeCheckStruct->setMeta([
-            'Scheduled tasks overdue' => $overdue,
-        ]);
+        $maxOverdueTime = $this->getMaxOverdueTimestamp($scheduledTasks);
 
-        return $queueSizeCheckStruct;
+        $this->collectOverdueTasks(
+            (int)ceil(($maxOverdueTime - $mustRunBefore->getTimestamp()) / 60) * -1,
+            $scheduledTasks
+        );
     }
 
-    private function setScheduledTaskCheckData($queueSizeCheckStruct): HealthCheckStruct
+    private function filterOldScheduledTaskImplementations(ScheduledTaskCollection $scheduledTasks): void
     {
-        /** @var array{scheduled_task_class: class-string, next_execution_time: string}[] $data */
-        $data = $this->connection->createQueryBuilder()
-            ->select('s.scheduled_task_class', 's.next_execution_time')
-            ->from('scheduled_task', 's')
-            ->where('s.status NOT IN(:status)')
-            ->setParameter('status', ['inactive', 'skipped'], ArrayParameterType::STRING)
-            ->fetchAllAssociative();
-
-        $tasks = array_filter($data, function (array $task) {
-            $taskClass = $task['scheduled_task_class'];
+        $scheduledTasks->filter(function (ScheduledTaskEntity $task) {
+            /** @var class-string<ScheduledTask> $taskClass */
+            $taskClass = $task->getScheduledTaskClass();
 
             // Old Shopware version
             if (!method_exists($taskClass, 'shouldRun')) {
@@ -59,28 +82,54 @@ class ScheduledTaskCheck extends AbstractCheck {
 
             return $taskClass::shouldRun($this->parameterBag);
         });
-
-
-        $maxDiff = 10;
-        $taskDateLimit = (new \DateTimeImmutable())->modify(\sprintf('-%d minutes', $maxDiff));
-
-        $tasks = array_filter($tasks, fn(array $task) => new \DateTimeImmutable($task['next_execution_time']) < $taskDateLimit);
-
-        if ($tasks === []) {
-            return $this->setQueueSizeCheckStruct($queueSizeCheckStruct,0,$maxDiff);
-        }
-
-        $maxTaskNextExecTime = 0;
-
-        foreach ($tasks as $task) {
-            $maxTaskNextExecTime = max((new \DateTimeImmutable($task['next_execution_time']))->getTimestamp(), $maxTaskNextExecTime);
-        }
-
-        $diff = round(abs(
-            ($maxTaskNextExecTime - $taskDateLimit->getTimestamp()) / 60
-        ));
-
-        return $this->setQueueSizeCheckStruct($queueSizeCheckStruct,$diff,$maxDiff);
     }
 
+    /**
+     * @param  EntityCollection  $scheduledTasks
+     * @param  DateTimeImmutable|false  $mustRunBefore
+     * @return void
+     */
+    private function filterTasksWhichRanOnTime(
+        EntityCollection $scheduledTasks,
+        DateTimeImmutable|false $mustRunBefore
+    ): void {
+        $scheduledTasks->filter(static fn(ScheduledTaskEntity $task) => $task->getNextExecutionTime() < $mustRunBefore);
+    }
+
+    private function createAllFineResponse(): void
+    {
+        $this->statusData->setStatus(HealthStatus::OK);
+        $this->statusData->setNotificationMessage('Scheduled tasks are not overdue and running fine.');
+        $this->statusData->setShortSummary('Scheduled task running fine.');
+        $this->statusData->setMeta([
+            'Scheduled tasks overdue in min' => 0,
+            'Tasks overdue' => ''
+        ]);
+    }
+
+    /**
+     * @param  ScheduledTaskCollection&EntityCollection<ScheduledTaskEntity>  $scheduledTasks
+     */
+    private function getMaxOverdueTimestamp(ScheduledTaskCollection $scheduledTasks): mixed
+    {
+        return $scheduledTasks->reduce(function (int $carry, ScheduledTaskEntity $task) {
+            return max($carry, $task->getNextExecutionTime()->getTimestamp());
+        }, 0);
+    }
+
+    private function collectOverdueTasks(int $overDueInMinutes, ScheduledTaskCollection $tasksOverdue): void
+    {
+        $this->statusData->setStatus(HealthStatus::FAILED);
+        $this->statusData->setNotificationMessage(
+            "Scheduled tasks are overdue by $overDueInMinutes min. They might not be running at all or fail while running."
+        );
+        $this->statusData->setShortSummary("Scheduled task overdue $overDueInMinutes mins");
+        $this->statusData->setMeta([
+            'Scheduled tasks overdue in min' => $overDueInMinutes,
+            'Tasks overdue' => implode(
+                "\n",
+                $tasksOverdue->map(static fn(ScheduledTaskEntity $task) => $task->getName())
+            )
+        ]);
+    }
 }

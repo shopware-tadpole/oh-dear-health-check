@@ -1,24 +1,32 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Tadpole\OhDear\Check;
 
 use DateTime;
 use Doctrine\DBAL\Connection;
+use Exception;
+use Tadpole\OhDear\Enum\HealthStatus;
 use Tadpole\OhDear\Struct\HealthCheckStruct;
-use Tadpole\Tools\Components\Health\SettingsResult;
 
-class QueueSizeCheck extends AbstractCheck {
-    public function __construct(private readonly Connection $connection) {}
+use function is_string;
 
-    function getHealthCheckStruct(): HealthCheckStruct
+readonly class QueueSizeCheck implements HealthCheck
+{
+    public function __construct(private Connection $connection)
+    {
+    }
+
+    public function getHealthCheckStruct(): HealthCheckStruct
     {
         $queueSizeCheckStruct = new HealthCheckStruct();
         $queueSizeCheckStruct->setName('QueueSizeCheck');
         $queueSizeCheckStruct->setLabel('Queue Size Check');
 
         $oldestMessage = $this->getQueueOldestMessage();
-        if(!$oldestMessage) {
-            $queueSizeCheckStruct->setStatus('ok');
+        if (!$oldestMessage) {
+            $queueSizeCheckStruct->setStatus(HealthStatus::OK);
             $queueSizeCheckStruct->setNotificationMessage('The Queue is empty');
             $queueSizeCheckStruct->setShortSummary('0 mins');
             $queueSizeCheckStruct->setMeta([
@@ -34,24 +42,26 @@ class QueueSizeCheck extends AbstractCheck {
         $diffInMinutes = $diff->days * 24 * 60 + $diff->h * 60 + $diff->i;
 
         // If oldest message is older than 30 minutes, set status to warning
-        if($diffInMinutes > 60){
-            $queueSizeCheckStruct->setStatus('error');
-            $queueSizeCheckStruct->setNotificationMessage('The Queue is longer than 60 minutes');
-            $queueSizeCheckStruct->setShortSummary($diffInMinutes . ' mins');
+        if ($diffInMinutes > 60) {
+            $queueSizeCheckStruct->setStatus(HealthStatus::FAILED);
+            $queueSizeCheckStruct->setNotificationMessage(
+                'The Queue took longer than 60 minutes to process the last message.'
+            );
+            $queueSizeCheckStruct->setShortSummary($diffInMinutes.' mins');
             $queueSizeCheckStruct->setMeta([
                 'queueDuration' => $diffInMinutes
             ]);
-        } elseif($diffInMinutes > 15){
-            $queueSizeCheckStruct->setStatus('warning');
-            $queueSizeCheckStruct->setNotificationMessage('The Queue is too long');
-            $queueSizeCheckStruct->setShortSummary($diffInMinutes . ' mins');
+        } elseif ($diffInMinutes > 15) {
+            $queueSizeCheckStruct->setStatus(HealthStatus::WARNING);
+            $queueSizeCheckStruct->setNotificationMessage('The queue takes too long to be processed.');
+            $queueSizeCheckStruct->setShortSummary($diffInMinutes.' mins');
             $queueSizeCheckStruct->setMeta([
                 'queueDuration' => $diffInMinutes
             ]);
-        }else{
-            $queueSizeCheckStruct->setStatus('ok');
-            $queueSizeCheckStruct->setNotificationMessage('The Queue is fine');
-            $queueSizeCheckStruct->setShortSummary($diffInMinutes. ' mins');
+        } else {
+            $queueSizeCheckStruct->setStatus(HealthStatus::OK);
+            $queueSizeCheckStruct->setNotificationMessage('The queue is fine');
+            $queueSizeCheckStruct->setShortSummary($diffInMinutes.' mins');
             $queueSizeCheckStruct->setMeta([
                 'queueDuration' => $diffInMinutes
             ]);
@@ -62,12 +72,14 @@ class QueueSizeCheck extends AbstractCheck {
     private function getQueueOldestMessage(): false|DateTime
     {
         /** @var string|false $oldestMessageAt */
-        $oldestMessageAt = $this->connection->fetchOne('SELECT available_at FROM messenger_messages WHERE available_at < UTC_TIMESTAMP() ORDER BY available_at ASC LIMIT 1');
+        $oldestMessageAt = $this->connection->fetchOne(
+            'SELECT available_at FROM messenger_messages WHERE available_at < UTC_TIMESTAMP() ORDER BY available_at ASC LIMIT 1'
+        );
 
-        if (\is_string($oldestMessageAt)) {
+        if (is_string($oldestMessageAt)) {
             try {
-                return new DateTime($oldestMessageAt . ' UTC');
-            } catch (\Exception $e) {
+                return new DateTime($oldestMessageAt.' UTC');
+            } catch (Exception $e) {
                 return false;
             }
         } else {

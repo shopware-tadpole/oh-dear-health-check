@@ -1,8 +1,11 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Tadpole\OhDear\Struct;
 
 use Shopware\Core\Framework\Struct\Struct;
+use Tadpole\OhDear\Enum\HealthStatus;
 
 class HealthCheckStruct extends Struct
 {
@@ -10,96 +13,66 @@ class HealthCheckStruct extends Struct
 
     protected string $label;
 
-    protected string $status;
+    protected HealthStatus $status = HealthStatus::FAILED;
 
-    protected string $notificationMessage;
+    protected string $notificationMessage = '';
 
-    protected string $shortSummary;
+    protected string $shortSummary = '';
 
-    protected ?array $meta;
+    protected ?array $meta = [];
 
-    /**
-     * @return string
-     */
     public function getName(): string
     {
         return $this->name;
     }
 
-    /**
-     * @param string $name
-     */
     public function setName(string $name): void
     {
         $this->name = $name;
     }
 
-    /**
-     * @return string
-     */
     public function getLabel(): string
     {
         return $this->label;
     }
 
-    /**
-     * @param string $label
-     */
     public function setLabel(string $label): void
     {
         $this->label = $label;
     }
 
-    /**
-     * @return string
-     */
-    public function getStatus(): string
+    public function getStatus(): HealthStatus
     {
         return $this->status;
     }
 
-    /**
-     * @param string $status
-     */
-    public function setStatus(string $status): void
+    public function setStatus(HealthStatus $status): void
     {
         $this->status = $status;
     }
 
-    /**
-     * @return string
-     */
     public function getNotificationMessage(): string
     {
         return $this->notificationMessage;
     }
 
-    /**
-     * @param string $notificationMessage
-     */
     public function setNotificationMessage(string $notificationMessage): void
     {
         $this->notificationMessage = $notificationMessage;
     }
 
-    /**
-     * @return string
-     */
     public function getShortSummary(): string
     {
         return $this->shortSummary;
     }
 
-    /**
-     * @param string $shortSummary
-     */
     public function setShortSummary(string $shortSummary): void
     {
         $this->shortSummary = $shortSummary;
     }
 
     /**
-     * @return array
+     * @return array<string, string>
      */
     public function getMeta(): array
     {
@@ -107,7 +80,7 @@ class HealthCheckStruct extends Struct
     }
 
     /**
-     * @param array $meta
+     * @param  array<string, string>  $meta
      */
     public function setMeta(array $meta): void
     {

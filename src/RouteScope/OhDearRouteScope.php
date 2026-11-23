@@ -1,4 +1,5 @@
-<?php declare(strict_types=1);
+<?php
+declare(strict_types=1);
 
 namespace Tadpole\OhDear\RouteScope;
 
@@ -13,7 +14,6 @@ class OhDearRouteScope extends AbstractRouteScope implements ApiContextRouteScop
 {
     final public const ID = 'ohdear-api';
 
-    // create a construct which get the shopware config service
     public function __construct(private readonly SystemConfigService $systemConfigService
     ) {
     }
@@ -21,12 +21,15 @@ class OhDearRouteScope extends AbstractRouteScope implements ApiContextRouteScop
     /**
      * @var array<string>
      */
-    protected $allowedPaths = ['rest','api', 'sw-domain-hash.html'];
+    protected $allowedPaths = ['rest', 'api', 'sw-domain-hash.html'];
 
     public function isAllowed(Request $request): bool
     {
         $secret = $request->headers->get('oh-dear-health-check-secret');
         $configSecret = $this->systemConfigService->get('TadpoleOhDear.config.ohDearSecret');
+        if (!$this->systemConfigService->get('TadpoleOhDear.config.ohDearSecret')) {
+            return false;
+        }
 
         return $secret === $configSecret;
     }
