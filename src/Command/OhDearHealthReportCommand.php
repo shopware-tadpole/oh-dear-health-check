@@ -9,6 +9,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Tadpole\OhDear\Enum\HealthStatus;
 use Tadpole\OhDear\Service\OhDearHealthReportService;
 
 #[AsCommand('ohdear:health-report')]
@@ -34,7 +35,8 @@ class OhDearHealthReportCommand extends Command
         $table->setHeaders(['Check', 'Status', 'Message']);
 
         foreach ($healthReport['checkResults'] as $check) {
-            $table->addRow([$check['label'], $check['status'], $check['notificationMessage']]);
+            $status = $check['status'] instanceof HealthStatus ? $check['status']->value : $check['status'];
+            $table->addRow([$check['label'], $status, $check['notificationMessage']]);
         }
         $table->render();
         return Command::SUCCESS;

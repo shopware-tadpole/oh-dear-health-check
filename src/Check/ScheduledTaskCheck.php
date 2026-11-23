@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Tadpole\OhDear\Check;
 
 use DateTimeImmutable;
+use Shopware\Core\Framework\Api\Context\SystemSource;
 use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityCollection;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsAnyFilter;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\NotFilter;
 use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTask;
 use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskCollection;
 use Shopware\Core\Framework\MessageQueue\ScheduledTask\ScheduledTaskEntity;
@@ -44,17 +46,21 @@ readonly class ScheduledTaskCheck implements HealthCheck
     private function collectData(): void
     {
         $criteria = new Criteria();
-        $criteria->addFilter(new EqualsAnyFilter('status', ['inactive', 'skipped']));
+        $criteria->addFilter(new NotFilter(NotFilter::CONNECTION_AND, [
+            new EqualsAnyFilter('status', ['inactive', 'skipped']),
+        ]));
         $scheduledTasks = $this->scheduledTaskRepository->search(
             $criteria,
-            Context::createDefaultContext()
+            new Context(new SystemSource())
         )->getEntities();
+        \assert($scheduledTasks instanceof ScheduledTaskCollection);
 
         $mustRunBefore = (new DateTimeImmutable())->modify(
             sprintf('-%d minutes', self::MAX_RUNTIME_BEFORE_WARNING_IN_MINUTES)
         );
-        $this->filterOldScheduledTaskImplementations($scheduledTasks);
-        $this->filterTasksWhichRanOnTime($scheduledTasks, $mustRunBefore);
+        // EntityCollection::filter() returns a new collection, it does not filter in place.
+        $scheduledTasks = $this->filterOldScheduledTaskImplementations($scheduledTasks);
+        $scheduledTasks = $this->filterTasksWhichRanOnTime($scheduledTasks, $mustRunBefore);
 
         if ($scheduledTasks->count() === 0) {
             $this->createAllFineResponse();
@@ -69,14 +75,13 @@ readonly class ScheduledTaskCheck implements HealthCheck
         );
     }
 
-    private function filterOldScheduledTaskImplementations(ScheduledTaskCollection $scheduledTasks): void
+    private function filterOldScheduledTaskImplementations(ScheduledTaskCollection $scheduledTasks): ScheduledTaskCollection
     {
-        $scheduledTasks->filter(function (ScheduledTaskEntity $task) {
-            /** @var class-string<ScheduledTask> $taskClass */
+        return $scheduledTasks->filter(function (ScheduledTaskEntity $task) {
             $taskClass = $task->getScheduledTaskClass();
 
-            // Old Shopware version
-            if (!method_exists($taskClass, 'shouldRun')) {
+            // The task class may be gone (e.g. its plugin was removed): keep the task listed.
+            if (!is_a($taskClass, ScheduledTask::class, true)) {
                 return true;
             }
 
@@ -84,16 +89,11 @@ readonly class ScheduledTaskCheck implements HealthCheck
         });
     }
 
-    /**
-     * @param  EntityCollection  $scheduledTasks
-     * @param  DateTimeImmutable|false  $mustRunBefore
-     * @return void
-     */
     private function filterTasksWhichRanOnTime(
-        EntityCollection $scheduledTasks,
-        DateTimeImmutable|false $mustRunBefore
-    ): void {
-        $scheduledTasks->filter(static fn(ScheduledTaskEntity $task) => $task->getNextExecutionTime() < $mustRunBefore);
+        ScheduledTaskCollection $scheduledTasks,
+        DateTimeImmutable $mustRunBefore
+    ): ScheduledTaskCollection {
+        return $scheduledTasks->filter(static fn(ScheduledTaskEntity $task) => $task->getNextExecutionTime() < $mustRunBefore);
     }
 
     private function createAllFineResponse(): void

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Tadpole\OhDear\RouteScope;
@@ -9,13 +10,13 @@ use Shopware\Core\Framework\Routing\ApiContextRouteScopeDependant;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\HttpFoundation\Request;
 
-#[Package('core')]
+#[Package('framework')]
 class OhDearRouteScope extends AbstractRouteScope implements ApiContextRouteScopeDependant
 {
     final public const ID = 'ohdear-api';
 
-    public function __construct(private readonly SystemConfigService $systemConfigService
-    ) {
+    public function __construct(private readonly SystemConfigService $systemConfigService)
+    {
     }
 
     /**
@@ -27,11 +28,11 @@ class OhDearRouteScope extends AbstractRouteScope implements ApiContextRouteScop
     {
         $secret = $request->headers->get('oh-dear-health-check-secret');
         $configSecret = $this->systemConfigService->get('TadpoleOhDear.config.ohDearSecret');
-        if (!$this->systemConfigService->get('TadpoleOhDear.config.ohDearSecret')) {
+        if (!$configSecret || !\is_string($configSecret) || !\is_string($secret)) {
             return false;
         }
 
-        return $secret === $configSecret;
+        return hash_equals($configSecret, $secret);
     }
 
     public function getId(): string

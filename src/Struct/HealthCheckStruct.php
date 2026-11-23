@@ -72,7 +72,7 @@ class HealthCheckStruct extends Struct
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, int|string>
      */
     public function getMeta(): array
     {
@@ -80,7 +80,7 @@ class HealthCheckStruct extends Struct
     }
 
     /**
-     * @param  array<string, string>  $meta
+     * @param  array<string, int|string>  $meta
      */
     public function setMeta(array $meta): void
     {

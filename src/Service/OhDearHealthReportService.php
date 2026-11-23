@@ -8,7 +8,6 @@ use Tadpole\OhDear\Struct\HealthCheckStruct;
 
 class OhDearHealthReportService
 {
-
     public function __construct(private readonly iterable $healthChecks)
     {
     }
@@ -28,7 +27,10 @@ class OhDearHealthReportService
     {
         $healthChecksStructs = $this->getHealthChecksStructs();
 
-        $healthChecksArray['finishedAt'] = time();
+        $healthChecksArray = [
+            'finishedAt' => time(),
+            'checkResults' => [],
+        ];
 
         /** @var HealthCheckStruct $healthChecksStruct */
         foreach ($healthChecksStructs as $healthChecksStruct) {
