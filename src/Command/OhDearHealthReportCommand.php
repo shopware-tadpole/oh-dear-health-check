@@ -1,18 +1,21 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Tadpole\OhDear\Command;
 
-use Tadpole\OhDear\Service\OhDearHealthReportService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Helper\Table;
+use Tadpole\OhDear\Enum\HealthStatus;
+use Tadpole\OhDear\Service\OhDearHealthReportService;
 
 #[AsCommand('ohdear:health-report')]
 class OhDearHealthReportCommand extends Command
 {
-    protected static $defaultName = 'ohdear:health-report';
+    protected static string $defaultName = 'ohdear:health-report';
 
     public function __construct(public readonly OhDearHealthReportService $ohDearHealthReportService)
     {
@@ -31,11 +34,11 @@ class OhDearHealthReportCommand extends Command
         $table = new Table($output);
         $table->setHeaders(['Check', 'Status', 'Message']);
 
-        foreach($healthReport['checkResults'] as $check) {
-            $table->addRow([$check['label'], $check['status'], $check['notificationMessage']]);
+        foreach ($healthReport['checkResults'] as $check) {
+            $status = $check['status'] instanceof HealthStatus ? $check['status']->value : $check['status'];
+            $table->addRow([$check['label'], $status, $check['notificationMessage']]);
         }
         $table->render();
         return Command::SUCCESS;
     }
-
 }

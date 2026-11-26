@@ -1,34 +1,39 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Tadpole\OhDear\Service;
 
 use Tadpole\OhDear\Struct\HealthCheckStruct;
 
-class OhDearHealthReportService {
-
+class OhDearHealthReportService
+{
     public function __construct(private readonly iterable $healthChecks)
     {
-
     }
 
     public function getHealthChecksStructs(): array
     {
         $HealthCheckStructs = [];
 
-        foreach($this->healthChecks as $healthCheck){
+        foreach ($this->healthChecks as $healthCheck) {
             $HealthCheckStructs[] = $healthCheck->getHealthCheckStruct();
         }
 
         return $HealthCheckStructs;
     }
 
-    public function getHealthChecksArray(): array {
+    public function getHealthChecksArray(): array
+    {
         $healthChecksStructs = $this->getHealthChecksStructs();
 
-        $healthChecksArray['finishedAt'] = time();
+        $healthChecksArray = [
+            'finishedAt' => time(),
+            'checkResults' => [],
+        ];
 
         /** @var HealthCheckStruct $healthChecksStruct */
-        foreach($healthChecksStructs as $healthChecksStruct){
+        foreach ($healthChecksStructs as $healthChecksStruct) {
             $healthChecksArray['checkResults'][] = [
                 'name' => $healthChecksStruct->getName(),
                 'label' => $healthChecksStruct->getLabel(),

@@ -5,6 +5,7 @@
            xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
 
     <services>
+        <defaults autowire="true"/>
         <service id="Tadpole\OhDear\RouteScope\OhDearRouteScope">
             <tag name="shopware.route_scope"/>
             <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
@@ -16,8 +17,7 @@
         </service>
 
         <service id="Tadpole\OhDear\Check\ScheduledTaskCheck">
-            <argument type="service" id="Doctrine\DBAL\Connection"/>
-            <argument type="service" id="parameter_bag"/>
+            <argument type="service" id="parameter_bag" key="$parameterBag" />
             <tag name="oh_dear.health_check"/>
         </service>
 
@@ -34,10 +34,5 @@
             <tag name="controller.service_arguments"/>
             <argument type="service" id="Tadpole\OhDear\Service\OhDearHealthReportService"/>
         </service>
-
-<!--        <service id="Tadpole\OhDear\Command\OhDearHealthReportCommand">-->
-<!--            <tag name="console.command"/>-->
-<!--        </service>-->
-
     </services>
 </container>
